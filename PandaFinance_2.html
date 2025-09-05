@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panda Finance - Full Realtime</title>
+<style>
+body {margin:0; font-family:'Poppins',sans-serif; background:linear-gradient(135deg,#5c6bc0,#8e99f3); color:#263238; padding:20px;}
+.container {background:#f5f7fa; border-radius:15px; padding:25px 35px; max-width:480px; width:100%; box-shadow:0 8px 24px rgba(0,0,0,0.15);}
+h1,h2 {text-align:center; color:#3f51b5;}
+label {display:block; margin-bottom:6px; font-weight:600; color:#455a64;}
+input[type='text'],input[type='file'],select,input[type='range'] {width:100%; padding:12px 15px; margin-bottom:4px; font-size:16px; border-radius:8px; border:1.5px solid #cfd8dc; background:#fff; transition:border-color 0.3s,box-shadow 0.3s;}
+input[type='text']:focus,input[type='file']:focus,select:focus,input[type='range']:focus {border-color:#3f51b5; outline:none; box-shadow:0 0 8px rgba(63,81,181,0.3);}
+input[readonly]{background:#e0e0e0; cursor:not-allowed;}
+input::placeholder{color:#90a4ae;}
+button{width:100%; padding:14px; border:none; border-radius:10px; background:#3f51b5; color:#fff; font-size:18px; font-weight:700; cursor:pointer; transition:0.3s; margin-bottom:10px;}
+button:disabled{background:#b0bec5; cursor:not-allowed;}
+button:hover:not(:disabled){background:#303f9f;}
+.result-card{margin-top:20px;background:#3f51b5;color:#fffde7;padding:18px;border-radius:12px;font-weight:600;opacity:0;transform:translateY(15px);transition:all 0.5s ease;}
+.result-card.show{opacity:1;transform:translateY(0);}
+.result-card strong{color:#ffeb3b;}
+.slider-container{margin-bottom:18px;}
+.slider-label{display:flex; justify-content:space-between; font-size:14px; margin-bottom:5px;}
+input[type='range']{-webkit-appearance:none;height:8px;border-radius:5px;background:#8e99f333; outline:none;}
+input[type='range']::-webkit-slider-thumb{-webkit-appearance:none; width:20px;height:20px;border-radius:50%;background:#ffeb3b; cursor:pointer; transition:0.3s;}
+.location-fallback{display:none;margin-bottom:15px;}
+.location-fallback input{background:#fff3e0; color:#263238;}
+.error-msg{color:#d32f2f;font-size:13px;margin-bottom:12px;display:none;}
+.error-msg.show{display:block;}
+img.preview-selfie{margin-top:10px;border-radius:10px;width:100px;}
+table{border-collapse:collapse;width:100%; margin-top:10px;}
+th,td{border:1px solid #ccc;padding:8px;text-align:center;}
+th{background:#3f51b5;color:white;}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Panda Finance</h1>
+  <form id="loanForm" novalidate>
+    <label for="name">Nama Lengkap</label>
+    <input type="text" id="name" placeholder="Masukkan nama lengkap" required>
+    <div id="errorName" class="error-msg"></div>
+
+    <div class="slider-container">
+      <div class="slider-label">
+        <label for="amount">Jumlah Pinjaman (Rp)</label>
+        <span id="amountDisplay">Rp500.000</span>
+      </div>
+      <input type="range" id="amount" min="500000" max="3000000" step="50000" value="500000">
+      <input type="text" id="amountNumber" placeholder="Ketik jumlah pinjaman">
+      <div id="errorAmount" class="error-msg"></div>
+    </div>
+
+    <label for="plan">Pembayaran</label>
+    <select id="plan" required>
+      <option value="">-- Pilih --</option>
+      <option value="kasbon">Kasbon</option>
+      <option value="gajian">Gajian</option>
+    </select>
+    <div id="errorPlan" class="error-msg"></div>
+
+    <label for="location">Lokasi (otomatis terisi)</label>
+    <input type="text" id="location" placeholder="Mendeteksi lokasi..." readonly required>
+    <div class="location-fallback" id="locationFallback">
+      <label>Lokasi (manual)</label>
+      <input type="text" id="manualLocation" placeholder="Masukkan lokasi jika gagal otomatis">
+    </div>
+    <div id="errorLocation" class="error-msg"></div>
+
+    <label for="office">Kantor</label>
+    <input type="text" id="office" placeholder="Masukkan kantor Anda" required>
+    <div id="errorOffice" class="error-msg"></div>
+
+    <label for="selfie">Unggah Selfie</label>
+    <input type="file" id="selfie" accept="image/*" capture="user" required>
+    <div id="errorSelfie" class="error-msg"></div>
+
+    <button type="submit" id="submitBtn" disabled>Ajukan Pinjaman</button>
+    <button type="button" id="resetBtn" style="background:#b0bec5;">Reset Form</button>
+  </form>
+
+  <div class="result-card" id="result">
+    <div id="summary"></div>
+  </div>
+</div>
+
+<div class="container">
+  <h2>Daftar Pinjaman</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Nama</th>
+        <th>Jumlah</th>
+        <th>Pembayaran</th>
+        <th>Lokasi</th>
+        <th>Kantor</th>
+        <th>Selfie</th>
+      </tr>
+    </thead>
+    <tbody id="loanTableBody"></tbody>
+  </table>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+import { getDatabase, ref, push, set, onValue } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-database.js";
+import { getStorage, ref as sRef, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-storage.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCq44xUlCsdSm9xU_qOy05u62c8KFBm8Yo",
+  authDomain: "panda-finance-6235c.firebaseapp.com",
+  databaseURL: "https://panda-finance-6235c-default-rtdb.firebaseio.com",
+  projectId: "panda-finance-6235c",
+  storageBucket: "panda-finance-6235c.appspot.com",
+  messagingSenderId: "968703039343",
+  appId: "1:968703039343:web:1d0a7709a66f8369fafa9a",
+  measurementId: "G-831Y0XXK72"
+};
+
+const app = initializeApp(firebaseConfig);
+const database = getDatabase(app);
+const storage = getStorage(app);
+
+// ==== Elements ====
+const nameInput = document.getElementById('name');
+const amountInput = document.getElementById('amount');
+const amountNumberInput = document.getElementById('amountNumber');
+const planSelect = document.getElementById('plan');
+const amountDisplay = document.getElementById('amountDisplay');
+const locationInput = document.getElementById('location');
+const manualLocationInput = document.getElementById('manualLocation');
+const officeInput = document.getElementById('office');
+const selfieInput = document.getElementById('selfie');
+const submitBtn = document.getElementById('submitBtn');
+const resetBtn = document.getElementById('resetBtn');
+const resultDiv = document.getElementById('result');
+const summaryDiv = document.getElementById('summary');
+const locationFallbackDiv = document.getElementById('locationFallback');
+const loanTableBody = document.getElementById('loanTableBody');
+
+const errorName = document.getElementById('errorName');
+const errorAmount = document.getElementById('errorAmount');
+const errorPlan = document.getElementById('errorPlan');
+const errorLocation = document.getElementById('errorLocation');
+const errorOffice = document.getElementById('errorOffice');
+const errorSelfie = document.getElementById('errorSelfie');
+
+// ==== Functions ====
+function formatRupiah(value){return 'Rp'+parseInt(value).toLocaleString('id-ID');}
+function formatRupiahInput(value){let numberString=value.replace(/[^,\d]/g,"");let split=numberString.split(",");let sisa=split[0].length%3;let rupiah=split[0].substr(0,sisa);let ribuan=split[0].substr(sisa).match(/\d{3}/gi); if(ribuan){let separator=sisa?".":"";rupiah+=separator+ribuan.join(".");} rupiah=split[1]!==undefined?rupiah+","+split[1]:rupiah; return rupiah?"Rp"+rupiah:"";}
+
+function validateName(){const val=nameInput.value.trim();const regex=/^[a-zA-Z\s]{3,}$/; if(!regex.test(val)){errorName.textContent='Nama minimal 3 huruf dan hanya huruf/spasi'; errorName.classList.add('show'); return false;} errorName.classList.remove('show'); return true;}
+function validateAmount(){const val=parseInt(amountInput.value,10); if(isNaN(val)||val<500000||val>3000000){errorAmount.textContent='Jumlah pinjaman harus 500.000 - 3.000.000'; errorAmount.classList.add('show'); return false;} errorAmount.classList.remove('show'); return true;}
+function validatePlan(){if(planSelect.value===''){errorPlan.textContent='Harap pilih pembayaran'; errorPlan.classList.add('show'); return false;} errorPlan.classList.remove('show'); return true;}
+function validateLocation(){const loc=locationInput.value.trim()||manualLocationInput.value.trim(); if(loc.length===0){errorLocation.textContent='Harap isi lokasi'; errorLocation.classList.add('show'); return false;} errorLocation.classList.remove('show'); return true;}
+function validateOffice(){if(officeInput.value.trim().length===0){errorOffice.textContent='Harap isi kantor'; errorOffice.classList.add('show'); return false;} errorOffice.classList.remove('show'); return true;}
+function validateSelfie(){if(!selfieInput.files||selfieInput.files.length===0){errorSelfie.textContent='Harap unggah selfie'; errorSelfie.classList.add('show'); return false;} errorSelfie.classList.remove('show'); return true;}
+
+function checkForm(){const validName=validateName(); const validAmount=validateAmount(); const validPlan=validatePlan(); const validLocation=validateLocation(); const validOffice=validateOffice(); const validSelfie=validateSelfie(); const all=validName&&validAmount&&validPlan&&validLocation&&validOffice&&validSelfie; submitBtn.disabled=!all; return all;}
+
+function updateResultPreview(){const amount=parseInt(amountInput.value,10); const plan=planSelect.value; const interestRate=0.2; const totalInterest=amount*interestRate; const totalPayment=amount+totalInterest; summaryDiv.innerHTML=`<h3 style="margin-top:0;margin-bottom:8px;color:#ffeb3b;">Preview Pinjaman</h3>Pembayaran: <strong>${plan}</strong><br>Jumlah Pinjaman: <strong>${formatRupiah(amount)}</strong><br>Total Bunga: <strong>${formatRupiah(totalInterest)}</strong><br>Total Bayar: <strong>${formatRupiah(totalPayment)}</strong>`;}
+
+function renderLoans(data){loanTableBody.innerHTML=''; data.forEach(item=>{ const tr=document.createElement('tr'); tr.innerHTML=`<td>${item.name}</td><td>${formatRupiah(item.amount)}</td><td>${item.paymentType}</td><td>${item.location}</td><td>${item.office}</td><td>${item.selfieURL?'<img src="'+item.selfieURL+'" width="50">':'-'}</td>`; loanTableBody.appendChild(tr); });}
+
+// ==== Event Listeners ====
+amountInput.addEventListener('input',()=>{amountDisplay.textContent=formatRupiah(amountInput.value); validateAmount(); updateResultPreview(); checkForm();});
+amountNumberInput.addEventListener('input',()=>{let raw=amountNumberInput.value.replace(/[^0-9]/g,""); if(raw===""){amountInput.value=500000; amountDisplay.textContent=formatRupiah(500000); return;} let val=parseInt(raw,10); if(val<500000) val=500000; if(val>3000000) val=3000000; amountInput.value=val; amountNumberInput.value=formatRupiahInput(val.toString()); amountDisplay.textContent=formatRupiah(val); validateAmount(); updateResultPreview(); checkForm();});
+amountNumberInput.addEventListener('blur',()=>{amountNumberInput.value=formatRupiahInput(amountInput.value.toString());});
+
+nameInput.addEventListener('input',()=>{validateName(); checkForm();});
+planSelect.addEventListener('change',()=>{validatePlan(); updateResultPreview(); checkForm();});
+manualLocationInput.addEventListener('input',()=>{validateLocation(); checkForm();});
+officeInput.addEventListener('input',()=>{validateOffice(); checkForm();});
+
+selfieInput.addEventListener('change',()=>{
+  validateSelfie(); checkForm();
+  if(selfieInput.files[0]){
+    const file=selfieInput.files[0]; const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image(); img.src=e.target.result; img.onload=()=>{
+        const canvas=document.createElement('canvas'); const maxWidth=500; const scale=maxWidth/img.width; canvas.width=maxWidth; canvas.height=img.height*scale; const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0,canvas.width,canvas.height); const resized=canvas.toDataURL('image/jpeg',0.7); selfieInput.dataset.resized=resized; const existingImg=document.querySelector(".preview-selfie"); if(existingImg) existingImg.remove(); const previewImg=document.createElement("img"); previewImg.src=resized; previewImg.className="preview-selfie"; summaryDiv.appendChild(previewImg);
+      };
+    }; reader.readAsDataURL(file);
+  }
+});
+
+window.addEventListener("load",()=>{
+  amountNumberInput.value=formatRupiahInput(amountInput.value);
+  if('geolocation' in navigator){
+    navigator.geolocation.getCurrentPosition(pos=>{locationInput.value=`${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`; validateLocation(); checkForm();},()=>{locationInput.value=''; locationFallbackDiv.style.display='block'; validateLocation(); checkForm();});
+  } else{locationInput.value=''; locationFallbackDiv.style.display='block'; validateLocation(); checkForm();}
+});
+
+// ==== Submit Form ====
+document.getElementById('loanForm').addEventListener('submit', async(e)=>{
+  e.preventDefault(); if(!checkForm()) return;
+  const name=nameInput.value.trim(); const amount=parseInt(amountInput.value,10); const plan=planSelect.value; const userLocation=locationInput.value.trim()||manualLocationInput.value.trim(); const office=officeInput.value.trim();
+  let selfieURL='';
+  if(selfieInput.dataset.resized){
+    const storageRef=sRef(storage,'selfies/'+Date.now()+'.jpg');
+    await uploadString(storageRef,selfieInput.dataset.resized,'data_url');
+    selfieURL=await getDownloadURL(storageRef);
+  }
+  const loanRef=push(ref(database,'loans'));
+  await set(loanRef,{name:name,amount:amount,paymentType:plan,location:userLocation,office:office,selfieURL:selfieURL});
+  // Preview
+  summaryDiv.innerHTML=`<strong>Halo, ${name}!</strong><br>Pembayaran: <strong>${plan}</strong><br>Lokasi: <strong>${userLocation}</strong><br>Kantor: <strong>${office}</strong><br>Jumlah Pinjaman: <strong>${formatRupiah(amount)}</strong>`;
+  if(selfieURL){const img=document.createElement("img"); img.src=selfieURL; img.className="preview-selfie"; summaryDiv.appendChild(img);}
+  resultDiv.classList.add('show');
+  document.getElementById('loanForm').reset(); amountInput.value=500000; amountDisplay.textContent=formatRupiah(amountInput.value); amountNumberInput.value=formatRupiahInput(amountInput.value); selfieInput.dataset.resized=''; locationFallbackDiv.style.display='none'; checkForm();
+});
+
+// ==== Reset ====
+resetBtn.addEventListener('click',()=>{document.getElementById('loanForm').reset(); amountInput.value=500000; amountDisplay.textContent=formatRupiah(amountInput.value); amountNumberInput.value=formatRupiahInput(amountInput.value); const existingImg=document.querySelector(".preview-selfie"); if(existingImg) existingImg.remove(); resultDiv.classList.remove('show'); [errorName,errorAmount,errorPlan,errorLocation,errorOffice,errorSelfie].forEach(el=>el.classList.remove('show')); locationFallbackDiv.style.display='none'; checkForm();});
+
+// ==== Listen Realtime Database ====
+onValue(ref(database,'loans'), snapshot=>{
+  const loansData=[]; snapshot.forEach(childSnap=>{loansData.push(childSnap.val());}); renderLoans(loansData);
+});
+
+</script>
+
+</body>
+</html>
+
